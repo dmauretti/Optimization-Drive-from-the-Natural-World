@@ -38,6 +38,12 @@ class Cuckoo:
                 # Add a high penalty if the path segment is invalid
                 fitness += 9999 
         
+        # Add the return edge (closing the tour)
+        if self.G.has_edge(self.path[-1], self.path[0]):
+            fitness += self.G[self.path[-1]][self.path[0]]['weight']
+        else:
+            fitness += 9999
+        
         # Return inverse: lower cost results in higher fitness
         # 1.0 / (cost + eps)
         return 1.0 / (fitness + self.eps) # Had to do this to switch to min problem
@@ -148,16 +154,13 @@ class CuckooSearch:
             # Levy Flight / Egg Laying (Generating new solutions)
             for j in range(self.num_cuckoos):
                 cuckoo = self.cuckoos[j]
-                step = self.levy_flight() # The step size is used conceptually/indirectly here
+                step = self.levy_flight()
                 
-                # Generate a new candidate solution (a new 'egg' / path)
                 new_path = cuckoo.generate_new_path()
                 new_cuckoo = Cuckoo(new_path, self.G)
                 
-                # Replacing Nests (Selecting the better solution)
-                # If the new egg (solution) is better than the current nest owner's solution
                 if new_cuckoo.fitness > cuckoo.fitness:
-                    self.cuckoos[j] = new_cuckoo # Replace the old solution
+                    self.cuckoos[j] = new_cuckoo
                     self.test_cases+=1
             
             # Sort the population to find the current best
@@ -167,11 +170,19 @@ class CuckooSearch:
             
             # Log convergence data (calculating the actual cost/weight)
             actual_cost = 0
+            
+            # Add cost for all edges in the path
             for k in range(1, len(best_path)):
                 if self.G.has_edge(best_path[k-1], best_path[k]):
                     actual_cost += self.G[best_path[k-1]][best_path[k]]['weight']
                 else:
                     actual_cost += 9999
+            
+            # Add the return edge (closing the tour)
+            if self.G.has_edge(best_path[-1], best_path[0]):
+                actual_cost += self.G[best_path[-1]][best_path[0]]['weight']
+            else:
+                actual_cost += 9999
             
             self.convergence_log.append({
                 'iteration': i,
@@ -181,7 +192,6 @@ class CuckooSearch:
                 'path_length': len(best_path)
             })
             
-            # Store results for later analysis
             self.test_results.append([i, best_fitness, self.test_cases])
         
         # Final best solution found

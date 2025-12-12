@@ -5,16 +5,19 @@ def main():
     # Read the convergence data
     df_cuckoo = pd.read_csv('cuckoo_convergence.csv')
     df_whale = pd.read_csv('whale_convergence.csv')
+    df_ant = pd.read_csv('ant_convergence.csv')
     
     # Create figure with subplots
     fig, ax = plt.subplots(figsize=(10, 6))
-    fig.suptitle('Cuckoo Search vs Whale Optimization')
+    fig.suptitle('Cuckoo Search vs Whale Optimization vs Ant Colony')
     
     # Best Cost Comparison
     ax.plot(df_cuckoo['iteration'], df_cuckoo['best_cost'], 
-             'o-', label='Cuckoo Search', linewidth=2, markersize=4, color='#e74c3c')
+             'o-', label='Cuckoo Search', linewidth=2, markersize=4, color='red')
     ax.plot(df_whale['iteration'], df_whale['best_cost'], 
-             's-', label='Whale Optimization', linewidth=2, markersize=4, color='#3498db')
+             's-', label='Whale Optimization', linewidth=2, markersize=4, color='blue')
+    ax.plot(df_ant['iteration'], df_ant['best_cost'], 
+             'o-', label='Ant Colony', linewidth=2, markersize=4, color='green')
     ax.set_xlabel('Iteration', fontsize=11)
     ax.set_ylabel('Best Cost', fontsize=11)
     ax.set_title('Best Cost Convergence', fontsize=12, fontweight='bold')
