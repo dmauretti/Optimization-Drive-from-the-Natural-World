@@ -2,65 +2,82 @@ import networkx as nx
 import numpy as np
 import pandas as pd
 import datetime
-import time
 from cuckoo import CuckooSearch
 from whale import WhaleOptimization
 
 
 def calculate_tour_cost(graph, tour):
-    """Calculates the total cost of a TSP tour (closed loop)."""
+    # Calculates the total distance of a path, including the return trip to the start.
     cost = 0
     if not tour or len(tour) < 2:
         return 0
         
+    # Sum weights for each step in the path
     for i in range(len(tour) - 1):
         u, v = tour[i], tour[i+1]
         if graph.has_edge(u, v):
             cost += graph[u][v]['weight']
         else:
-            return float('inf') 
+            return float('inf') # Invalid tour (edge doesn't exist)
             
-    # Check if it's a closed loop (TSP)
+    # If the tour is already a closed loop (ends at start), we are done
     if tour[0] == tour[-1]:
         return cost
         
-    # If not a loop, add return to start for TSP cost estimation
+    # Otherwise, add the cost of the final leg back to the start
     start, end = tour[0], tour[-1]
     if graph.has_edge(end, start):
         cost += graph[end][start]['weight']
+    else:
+        cost += 99999 # Heavy penalty if the return flight doesn't exist
         
     return cost
 
-
 def graph_fitness_adapter(graph_, x_batch, y_batch):
+    # Citation: Help from Gemini
+    # Converts Whale Optimization parameters (x, y) into a path cost (fitness).
+    # Lower cost = Better fitness.
     scores = []
     num_nodes = len(graph_.nodes())
     
+    # Process each whale in the batch
     for x, y in zip(x_batch, y_batch):
         unvisited = set(range(1, num_nodes))
-        path = [0]
+        path = [0] # Always start at node 0
         current_node = 0
         total_weight = 0
         
+        # Build a path by visiting all nodes
         while unvisited:
+            # Find valid neighbors that haven't been visited yet
             neighbors = [n for n in graph_.neighbors(current_node) if n in unvisited]
             
+            # Dead end handling: If stuck, allow jumping to any unvisited node
             if not neighbors:
                 neighbors = list(unvisited)
             
+            # The "Priority Function": Determines which city to visit next based on sin/cos of node ID
             def get_priority(node_id):
                 return np.sin(node_id * x) + np.cos(node_id * y)
             
+            # Pick the neighbor with the highest priority score
             next_node = max(neighbors, key=get_priority)
             
+            # Add edge weight to total cost (add huge penalty if edge doesn't exist)
             if graph_.has_edge(current_node, next_node):
                 total_weight += graph_[current_node][next_node]['weight']
             else:
-                total_weight += 9999
+                total_weight += 99999 
             
             current_node = next_node
             unvisited.remove(next_node)
             path.append(current_node)
+        
+        # Add the final return leg cost
+        if graph_.has_edge(current_node, 0):
+            total_weight += graph_[current_node][0]['weight']
+        else:
+            total_weight += 99999
         
         scores.append(total_weight)
         
@@ -68,64 +85,67 @@ def graph_fitness_adapter(graph_, x_batch, y_batch):
 
 
 def run_cuckoo(graph_):
-    csa = CuckooSearch(graph_, num_cuckoos=30, max_iterations=50, beta=1.5)
+    # Initialize Cuckoo Search
+    csa = CuckooSearch(graph_, num_cuckoos=100, max_iterations=2000, beta=1.5)
     
-    # Force all cuckoo paths to start with node 0
+    # Ensure all random starting paths actually begin at node 0
     for cuckoo in csa.cuckoos:
         if cuckoo.path[0] != 0:
             path = cuckoo.path
             if 0 in path:
                 path.remove(0)
-            path.insert(0, 0)
+            path.insert(0, 0) # Force start at 0
             cuckoo.path = path
             cuckoo.fitness = cuckoo.calculate_fitness()
 
+    # Execute Optimization
     start = datetime.datetime.now()
     best_path, best_fitness = csa.optimize()
     end = datetime.datetime.now()
 
     csa_time = end - start
+    
+    # Close the loop back for TSP
+    if best_path[-1] != 0:
+        best_path.append(0)
 
+    # Calculate Cost
     actual_cost = calculate_tour_cost(graph_, best_path)
 
-    print("Cuckoo Search Algorithm Output:")
     print(f"Optimal path: {best_path}")
     print(f"Optimal path cost: {actual_cost}")
     print(f"CSA total Exec time => {csa_time.total_seconds()}")
     
-    # Save convergence log to CSV
     df_cuckoo = pd.DataFrame(csa.convergence_log)
     df_cuckoo.to_csv('cuckoo_convergence.csv', index=False)
-    print(f"\nCuckoo convergence saved to 'cuckoo_convergence.csv'")
-    print("\nFirst 10 iterations:")
-    print(df_cuckoo.head(10).to_string(index=False))
-    print("\nLast 10 iterations:")
-    print(df_cuckoo.tail(10).to_string(index=False))
-    print("\n" + "="*60 + "\n")
-
 
 def run_whale(graph_):
-    nsols = 50
-    b = 1.0
-    a = 2.0
-    max_iter = 50
-    a_step = a / max_iter
+    # Initialize Parameters
+    nsols = 100              # Population size
+    b = 1.0                 # Spiral shape constant
+    a = 2.0                 # Exploration strength
+    max_iter = 2000          # Total iterations
+    a_step = a / max_iter   # Decay rate per iteration
     
+    # Search space constraints for x and y parameters
     constraints = [[-5.0, 5.0], [-5.0, 5.0]]
     
+    # Initialize Whale Optimization
     whale = WhaleOptimization(graph_fitness_adapter, graph_, constraints, nsols, b, a, a_step, maximize=False)
 
     start = datetime.datetime.now()
-    for iteration in range(max_iter):
+    for _ in range(max_iter):
         whale.optimize()
     end = datetime.datetime.now()
     whale_time = end - start
 
+    # Retrieve the best solution found
     best_fitness_entry = sorted(whale._best_solutions, key=lambda x: x[0])[0]
     best_score = best_fitness_entry[0]
     best_x, best_y = best_fitness_entry[1]
 
-    # Reconstruct the tour
+    # Citation: Help from Gemini
+    # Re-run the path generation logic using the best (x, y) found to see the actual route
     num_nodes = len(graph_.nodes())
     unvisited = set(range(1, num_nodes))
     path = [0]
@@ -135,14 +155,17 @@ def run_whale(graph_):
     while unvisited:
         neighbors = [n for n in graph_.neighbors(curr) if n in unvisited]
         
+        # Handle dead ends
         if not neighbors:
             neighbors = list(unvisited)
         
+        # Priority logic using best parameters
         def get_priority(node_id):
             return np.sin(node_id * best_x) + np.cos(node_id * best_y)
             
         nxt = max(neighbors, key=get_priority)
         
+        # Calculate step cost
         if graph_.has_edge(curr, nxt):
             total_cost += graph_[curr][nxt]['weight']
         else:
@@ -151,49 +174,185 @@ def run_whale(graph_):
         curr = nxt
         unvisited.remove(nxt)
         path.append(curr)
+    
+    # Add return for TSP
+    if graph_.has_edge(curr, 0):
+        total_cost += graph_[curr][0]['weight']
+        path.append(0)
+    else:
+        total_cost += 99999
+        path.append(0)
         
-    print("Whale Optimization Algorithm Output:")
     print(f"Optimal path: {path}")
     print(f"Optimal path cost: {total_cost}")
     print(f"WOA total Exec time => {whale_time.total_seconds()}")
     
-    # Save convergence log to CSV
+    # Export convergence data
     df_whale = pd.DataFrame(whale.convergence_log)
     df_whale.to_csv('whale_convergence.csv', index=False)
-    print(f"\nWhale convergence saved to 'whale_convergence.csv'")
-    print("\nFirst 10 iterations:")
-    print(df_whale.head(10).to_string(index=False))
-    print("\nLast 10 iterations:")
-    print(df_whale.tail(10).to_string(index=False))
-    print()
 
 
 def main():
     Gn = nx.DiGraph()
 
-    # 1. Define the Mapping (Smaller subset)
-    # 0: ATL, 1: BOS, 2: DEN, 3: DFW, 4: LAX, 5: ORD, 6: SFO
-    
-    # 2. Add nodes (0 to 6)
-    for i in range(7):
+    # Setup Nodes (20 Airports)
+    # 0: ATL, 1: BOS, 2: DEN, ... 19: AUS
+    for i in range(20):
         Gn.add_node(i)
 
-    # 3. Reduced Airport Data
+    # Define Flight Data (Edges with Weights)
     edges = [
-        (0, 1, {'weight': 946}), (0, 3, {'weight': 731}), (0, 5, {'weight': 606}),
-        (1, 0, {'weight': 946}), (1, 2, {'weight': 1754}), (1, 5, {'weight': 867}),
-        (2, 3, {'weight': 641}), (2, 4, {'weight': 862}), (2, 5, {'weight': 888}), (2, 6, {'weight': 967}),
-        (3, 0, {'weight': 731}), (3, 2, {'weight': 641}), (3, 4, {'weight': 1235}), (3, 5, {'weight': 802}),
-        (4, 2, {'weight': 862}), (4, 3, {'weight': 1235}), (4, 6, {'weight': 337}),
-        (5, 0, {'weight': 606}), (5, 1, {'weight': 867}), (5, 2, {'weight': 888}), (5, 3, {'weight': 802}),
-        (6, 2, {'weight': 967}), (6, 4, {'weight': 337})
+        # ATL (0) connections
+        (0, 1, {'weight': 946}), (0, 2, {'weight': 1199}), (0, 3, {'weight': 731}), 
+        (0, 4, {'weight': 1946}), (0, 5, {'weight': 606}), (0, 6, {'weight': 2139}),
+        (0, 7, {'weight': 2182}), (0, 8, {'weight': 594}), (0, 9, {'weight': 760}),
+        (0, 10, {'weight': 1587}), (0, 11, {'weight': 701}), (0, 12, {'weight': 226}),
+        (0, 13, {'weight': 906}), (0, 14, {'weight': 595}), (0, 15, {'weight': 1747}),
+        
+        # BOS (1) connections
+        (1, 0, {'weight': 946}), (1, 2, {'weight': 1754}), (1, 3, {'weight': 1562}),
+        (1, 4, {'weight': 2611}), (1, 5, {'weight': 867}), (1, 6, {'weight': 2704}),
+        (1, 7, {'weight': 2496}), (1, 8, {'weight': 1258}), (1, 9, {'weight': 188}),
+        (1, 10, {'weight': 2300}), (1, 11, {'weight': 1605}), (1, 12, {'weight': 841}),
+        (1, 13, {'weight': 1123}), (1, 14, {'weight': 632}), (1, 15, {'weight': 2376}),
+        
+        # DEN (2) connections
+        (2, 0, {'weight': 1199}), (2, 1, {'weight': 1754}), (2, 3, {'weight': 641}),
+        (2, 4, {'weight': 862}), (2, 5, {'weight': 888}), (2, 6, {'weight': 967}),
+        (2, 7, {'weight': 1024}), (2, 8, {'weight': 1726}), (2, 9, {'weight': 1626}),
+        (2, 10, {'weight': 586}), (2, 11, {'weight': 879}), (2, 12, {'weight': 1335}),
+        (2, 13, {'weight': 680}), (2, 14, {'weight': 1123}), (2, 15, {'weight': 628}),
+        (2, 16, {'weight': 991}), (2, 17, {'weight': 853}), (2, 18, {'weight': 391}),
+        (2, 19, {'weight': 775}),
+        
+        # DFW (3) connections
+        (3, 0, {'weight': 731}), (3, 1, {'weight': 1562}), (3, 2, {'weight': 641}),
+        (3, 4, {'weight': 1235}), (3, 5, {'weight': 802}), (3, 6, {'weight': 1464}),
+        (3, 7, {'weight': 1660}), (3, 8, {'weight': 1111}), (3, 9, {'weight': 1391}),
+        (3, 10, {'weight': 868}), (3, 11, {'weight': 225}), (3, 12, {'weight': 937}),
+        (3, 13, {'weight': 862}), (3, 14, {'weight': 986}), (3, 15, {'weight': 1055}),
+        (3, 17, {'weight': 1179}), (3, 18, {'weight': 989}), (3, 19, {'weight': 189}),
+        
+        # LAX (4) connections
+        (4, 0, {'weight': 1946}), (4, 1, {'weight': 2611}), (4, 2, {'weight': 862}),
+        (4, 3, {'weight': 1235}), (4, 5, {'weight': 1745}), (4, 6, {'weight': 337}),
+        (4, 7, {'weight': 954}), (4, 8, {'weight': 2342}), (4, 9, {'weight': 2475}),
+        (4, 10, {'weight': 370}), (4, 11, {'weight': 1374}), (4, 12, {'weight': 2125}),
+        (4, 13, {'weight': 1535}), (4, 14, {'weight': 1979}), (4, 15, {'weight': 236}),
+        (4, 16, {'weight': 834}), (4, 17, {'weight': 109}), (4, 18, {'weight': 590}),
+        (4, 19, {'weight': 1247}),
+        
+        # ORD (5) connections
+        (5, 0, {'weight': 606}), (5, 1, {'weight': 867}), (5, 2, {'weight': 888}),
+        (5, 3, {'weight': 802}), (5, 4, {'weight': 1745}), (5, 6, {'weight': 1846}),
+        (5, 7, {'weight': 1721}), (5, 8, {'weight': 1197}), (5, 9, {'weight': 740}),
+        (5, 10, {'weight': 1453}), (5, 11, {'weight': 940}), (5, 12, {'weight': 599}),
+        (5, 13, {'weight': 355}), (5, 14, {'weight': 235}), (5, 15, {'weight': 1521}),
+        (5, 18, {'weight': 1249}),
+        
+        # SFO (6) connections
+        (6, 0, {'weight': 2139}), (6, 1, {'weight': 2704}), (6, 2, {'weight': 967}),
+        (6, 3, {'weight': 1464}), (6, 4, {'weight': 337}), (6, 5, {'weight': 1846}),
+        (6, 7, {'weight': 679}), (6, 8, {'weight': 2585}), (6, 9, {'weight': 2586}),
+        (6, 10, {'weight': 651}), (6, 11, {'weight': 1635}), (6, 12, {'weight': 2296}),
+        (6, 13, {'weight': 1584}), (6, 14, {'weight': 2077}), (6, 15, {'weight': 414}),
+        (6, 16, {'weight': 550}), (6, 17, {'weight': 447}), (6, 18, {'weight': 600}),
+        
+        # SEA (7) connections
+        (7, 0, {'weight': 2182}), (7, 1, {'weight': 2496}), (7, 2, {'weight': 1024}),
+        (7, 3, {'weight': 1660}), (7, 4, {'weight': 954}), (7, 5, {'weight': 1721}),
+        (7, 6, {'weight': 679}), (7, 8, {'weight': 2734}), (7, 9, {'weight': 2408}),
+        (7, 10, {'weight': 1107}), (7, 11, {'weight': 1891}), (7, 13, {'weight': 1399}),
+        (7, 14, {'weight': 1927}), (7, 15, {'weight': 867}), (7, 16, {'weight': 129}),
+        (7, 17, {'weight': 1050}), (7, 18, {'weight': 701}),
+        
+        # MIA (8) connections
+        (8, 0, {'weight': 594}), (8, 1, {'weight': 1258}), (8, 2, {'weight': 1726}),
+        (8, 3, {'weight': 1111}), (8, 4, {'weight': 2342}), (8, 5, {'weight': 1197}),
+        (8, 6, {'weight': 2585}), (8, 7, {'weight': 2734}), (8, 9, {'weight': 1092}),
+        (8, 10, {'weight': 1972}), (8, 11, {'weight': 964}), (8, 12, {'weight': 649}),
+        (8, 14, {'weight': 1152}), (8, 19, {'weight': 1085}),
+        
+        # JFK (9) connections
+        (9, 0, {'weight': 760}), (9, 1, {'weight': 188}), (9, 2, {'weight': 1626}),
+        (9, 3, {'weight': 1391}), (9, 4, {'weight': 2475}), (9, 5, {'weight': 740}),
+        (9, 6, {'weight': 2586}), (9, 7, {'weight': 2408}), (9, 8, {'weight': 1092}),
+        (9, 10, {'weight': 2153}), (9, 11, {'weight': 1428}), (9, 12, {'weight': 544}),
+        (9, 13, {'weight': 1018}), (9, 14, {'weight': 509}), (9, 15, {'weight': 2248}),
+        
+        # PHX (10) connections
+        (10, 0, {'weight': 1587}), (10, 1, {'weight': 2300}), (10, 2, {'weight': 586}),
+        (10, 3, {'weight': 868}), (10, 4, {'weight': 370}), (10, 5, {'weight': 1453}),
+        (10, 6, {'weight': 651}), (10, 7, {'weight': 1107}), (10, 8, {'weight': 1972}),
+        (10, 9, {'weight': 2153}), (10, 11, {'weight': 1009}), (10, 12, {'weight': 1773}),
+        (10, 13, {'weight': 1280}), (10, 14, {'weight': 1690}), (10, 15, {'weight': 256}),
+        (10, 17, {'weight': 304}), (10, 18, {'weight': 504}), (10, 19, {'weight': 872}),
+        
+        # IAH (11) connections
+        (11, 0, {'weight': 701}), (11, 1, {'weight': 1605}), (11, 2, {'weight': 879}),
+        (11, 3, {'weight': 225}), (11, 4, {'weight': 1374}), (11, 5, {'weight': 940}),
+        (11, 6, {'weight': 1635}), (11, 7, {'weight': 1891}), (11, 8, {'weight': 964}),
+        (11, 9, {'weight': 1428}), (11, 10, {'weight': 1009}), (11, 12, {'weight': 928}),
+        (11, 13, {'weight': 1034}), (11, 14, {'weight': 1093}), (11, 15, {'weight': 1224}),
+        (11, 19, {'weight': 140}),
+        
+        # CLT (12) connections
+        (12, 0, {'weight': 226}), (12, 1, {'weight': 841}), (12, 2, {'weight': 1335}),
+        (12, 3, {'weight': 937}), (12, 4, {'weight': 2125}), (12, 5, {'weight': 599}),
+        (12, 6, {'weight': 2296}), (12, 8, {'weight': 649}), (12, 9, {'weight': 544}),
+        (12, 10, {'weight': 1773}), (12, 11, {'weight': 928}), (12, 13, {'weight': 906}),
+        (12, 14, {'weight': 505}), (12, 15, {'weight': 1887}),
+        
+        # MSP (13) connections
+        (13, 0, {'weight': 906}), (13, 1, {'weight': 1123}), (13, 2, {'weight': 680}),
+        (13, 3, {'weight': 862}), (13, 4, {'weight': 1535}), (13, 5, {'weight': 355}),
+        (13, 6, {'weight': 1584}), (13, 7, {'weight': 1399}), (13, 9, {'weight': 1018}),
+        (13, 10, {'weight': 1280}), (13, 11, {'weight': 1034}), (13, 12, {'weight': 906}),
+        (13, 14, {'weight': 528}), (13, 15, {'weight': 1299}), (13, 18, {'weight': 991}),
+        
+        # DTW (14) connections
+        (14, 0, {'weight': 595}), (14, 1, {'weight': 632}), (14, 2, {'weight': 1123}),
+        (14, 3, {'weight': 986}), (14, 4, {'weight': 1979}), (14, 5, {'weight': 235}),
+        (14, 6, {'weight': 2077}), (14, 7, {'weight': 1927}), (14, 8, {'weight': 1152}),
+        (14, 9, {'weight': 509}), (14, 10, {'weight': 1690}), (14, 11, {'weight': 1093}),
+        (14, 12, {'weight': 505}), (14, 13, {'weight': 528}), (14, 15, {'weight': 1765}),
+        
+        # LAS (15) connections
+        (15, 0, {'weight': 1747}), (15, 1, {'weight': 2376}), (15, 2, {'weight': 628}),
+        (15, 3, {'weight': 1055}), (15, 4, {'weight': 236}), (15, 5, {'weight': 1521}),
+        (15, 6, {'weight': 414}), (15, 7, {'weight': 867}), (15, 9, {'weight': 2248}),
+        (15, 10, {'weight': 256}), (15, 11, {'weight': 1224}), (15, 12, {'weight': 1887}),
+        (15, 13, {'weight': 1299}), (15, 14, {'weight': 1765}), (15, 16, {'weight': 763}),
+        (15, 17, {'weight': 258}), (15, 18, {'weight': 362}),
+        
+        # PDX (16) connections
+        (16, 2, {'weight': 991}), (16, 4, {'weight': 834}), (16, 6, {'weight': 550}),
+        (16, 7, {'weight': 129}), (16, 10, {'weight': 1009}), (16, 15, {'weight': 763}),
+        (16, 17, {'weight': 923}), (16, 18, {'weight': 630}),
+        
+        # SAN (17) connections
+        (17, 2, {'weight': 853}), (17, 3, {'weight': 1179}), (17, 4, {'weight': 109}),
+        (17, 6, {'weight': 447}), (17, 7, {'weight': 1050}), (17, 10, {'weight': 304}),
+        (17, 15, {'weight': 258}), (17, 16, {'weight': 923}), (17, 18, {'weight': 626}),
+        (17, 19, {'weight': 1141}),
+        
+        # SLC (18) connections
+        (18, 2, {'weight': 391}), (18, 3, {'weight': 989}), (18, 4, {'weight': 590}),
+        (18, 5, {'weight': 1249}), (18, 6, {'weight': 600}), (18, 7, {'weight': 701}),
+        (18, 10, {'weight': 504}), (18, 13, {'weight': 991}), (18, 15, {'weight': 362}),
+        (18, 16, {'weight': 630}), (18, 17, {'weight': 626}),
+        
+        # AUS (19) connections
+        (19, 2, {'weight': 775}), (19, 3, {'weight': 189}), (19, 4, {'weight': 1247}),
+        (19, 8, {'weight': 1085}), (19, 10, {'weight': 872}), (19, 11, {'weight': 140}),
+        (19, 17, {'weight': 1141}),
     ]
 
     Gn.add_edges_from(edges)
     
+    # Run Optimization Algorithms
     run_cuckoo(Gn)
     run_whale(Gn)
-
 
 if __name__ == "__main__":
     main()
