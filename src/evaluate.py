@@ -56,7 +56,7 @@ def graph_fitness_adapter(graph_, x_batch, y_batch):
             if not neighbors:
                 neighbors = list(unvisited)
             
-            # The "Priority Function": Determines which city to visit next based on sin/cos of node ID
+            # The "Priority Function": Determines which node to visit next based on sin/cos of node ID
             def get_priority(node_id):
                 return np.sin(node_id * x) + np.cos(node_id * y)
             
@@ -131,11 +131,11 @@ def run_cuckoo(graph_):
 
 def run_whale(graph_):
     # Initialize Parameters
-    nsols = 100              # Population size
-    b = 1.0                 # Spiral shape constant
-    a = 2.0                 # Exploration strength
-    max_iter = 2000          # Total iterations
-    a_step = a / max_iter   # Decay rate per iteration
+    nsols = 100
+    b = 1.0 
+    a = 2.0 
+    max_iter = 2000 
+    a_step = a / max_iter 
     
     # Search space constraints for x and y parameters
     constraints = [[-5.0, 5.0], [-5.0, 5.0]]
@@ -210,7 +210,7 @@ def main():
     for i in range(20):
         Gn.add_node(i)
 
-    # Define Flight Data (Edges with Weights)
+    # Flight Data
     edges = [
         # ATL (0) connections
         (0, 1, {'weight': 946}), (0, 2, {'weight': 1199}), (0, 3, {'weight': 731}), 

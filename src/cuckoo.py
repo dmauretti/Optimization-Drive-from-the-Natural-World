@@ -40,7 +40,7 @@ class Cuckoo:
         
         # Return inverse: lower cost results in higher fitness
         # 1.0 / (cost + eps)
-        return 1.0 / (fitness + self.eps)
+        return 1.0 / (fitness + self.eps) # Had to do this to switch to min problem
 
     # Huge Bottleneck (this is from the original code)
     # def generate_new_path(self):
@@ -53,7 +53,7 @@ class Cuckoo:
     #     end = nodes[-1]
         
     #     # Get all simple paths (no repeated nodes) between start and end
-    #     samples = list(nx.all_simple_paths(self.G, start, end))
+    #     samples = list(nx.all_simple_paths(self.G, start, end)) # THE BOTTLENECK
         
     #     # Ensure all paths include all nodes if this is a Traveling Salesman style problem
     #     for i in range(len(samples)):
@@ -121,7 +121,7 @@ class CuckooSearch:
                         for _ in range(self.num_cuckoos)]
         self.test_results = []
         self.test_cases = 0
-        self.convergence_log = [] # NEW: Track actual best cost per iteration
+        self.convergence_log = [] # Track actual best cost per iteration
     
     def levy_flight(self):
         """
@@ -145,7 +145,7 @@ class CuckooSearch:
         The main optimization loop.
         """
         for i in range(self.max_iterations):
-            # 1. Levy Flight / Egg Laying (Generating new solutions)
+            # Levy Flight / Egg Laying (Generating new solutions)
             for j in range(self.num_cuckoos):
                 cuckoo = self.cuckoos[j]
                 step = self.levy_flight() # The step size is used conceptually/indirectly here
@@ -154,7 +154,7 @@ class CuckooSearch:
                 new_path = cuckoo.generate_new_path()
                 new_cuckoo = Cuckoo(new_path, self.G)
                 
-                # 2. Replacing Nests (Selecting the better solution)
+                # Replacing Nests (Selecting the better solution)
                 # If the new egg (solution) is better than the current nest owner's solution
                 if new_cuckoo.fitness > cuckoo.fitness:
                     self.cuckoos[j] = new_cuckoo # Replace the old solution
@@ -165,7 +165,7 @@ class CuckooSearch:
             best_path = self.cuckoos[0].path
             best_fitness = self.cuckoos[0].fitness
             
-            # NEW: Log convergence data (calculating the actual cost/weight)
+            # Log convergence data (calculating the actual cost/weight)
             actual_cost = 0
             for k in range(1, len(best_path)):
                 if self.G.has_edge(best_path[k-1], best_path[k]):
@@ -183,10 +183,6 @@ class CuckooSearch:
             
             # Store results for later analysis
             self.test_results.append([i, best_fitness, self.test_cases])
-            
-            # Note: The code is missing the third key step of Cuckoo Search, 
-            # which is **abandoning a fraction of worst nests** (e.g., $P_a = 0.25$) 
-            # and replacing them with new random solutions.
         
         # Final best solution found
         best_path = self.cuckoos[0].path

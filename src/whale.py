@@ -14,7 +14,7 @@ class WhaleOptimization():
         :param opt_func: The function to be optimized (calculates fitness/cost).
         :param graph: Contextual data needed by opt_func (e.g., a graph structure).
         :param constraints: Boundaries for the search space (min/max for each dimension).
-        :param nsols: Number of solutions (whales) in the population.
+        :param nsols: Number of whales in the population.
         :param b: Constant for defining the logarithmic spiral shape (used in the attack phase).
         :param a: Initial value of the 'a' parameter (linearly decreases over iterations).
         :param a_step: The amount 'a' decreases by each iteration.
@@ -23,14 +23,13 @@ class WhaleOptimization():
         self._opt_func = opt_func
         self.graph = graph
         self._constraints = constraints
-        # Initialize the population of solutions (whales) randomly
-        self._sols = self._init_solutions(nsols)
+        self._sols = self._init_solutions(nsols) # Initialize the population of solutions (whales) randomly
         self._b = b
         self._a = a                  # Controls the transition from exploration to exploitation
         self._a_step = a_step        # Amount to reduce 'a' by in each step
         self._maximize = maximize
         self._best_solutions = []    # History of the best solution found in each iteration
-        self.convergence_log = []    # NEW: Track convergence details (e.g., best cost history)
+        self.convergence_log = []    # Track convergence details
         
     def get_solutions(self):
         """Returns the current population of solutions (whales)."""
@@ -42,13 +41,13 @@ class WhaleOptimization():
         The population updates its positions based on the current best solution 
         and the value of 'A' (derived from 'a').
         """
-        # 1. Evaluate and find the current best solution (leader)
+        # Evaluate and find the current best solution (leader)
         ranked_sol = self._rank_solutions()
         best_sol = ranked_sol[0]
         
         new_sols = [best_sol] # The best solution remains in the new population
                                                                  
-        # 2. Update the position of every other whale
+        # Update the position of every other whale
         for s in ranked_sol[1:]:
             # 50/50 chance to either attack/encircle OR use the spiral movement
             if np.random.uniform(0.0, 1.0) > 0.5: 
@@ -71,16 +70,15 @@ class WhaleOptimization():
             # Ensure the new solution is within the defined boundaries
             new_sols.append(self._constrain_solution(new_s))
 
-        # 3. Update the population and the 'a' parameter for the next iteration
+        # Update the population and the 'a' parameter for the next iteration
         self._sols = np.stack(new_sols)
         self._a -= self._a_step # Linearly decrease 'a'
         
-        # NEW: Log convergence data
+        # Log convergence data
         current_best = self._best_solutions[-1]
         self.convergence_log.append({
             'iteration': len(self._best_solutions) - 1,
             'best_cost': current_best[0],
-            # Assumes 2D solutions (x, y) for logging clarity
             'best_x': current_best[1][0], 
             'best_y': current_best[1][1]
         })
