@@ -83,6 +83,16 @@ def graph_fitness_adapter(graph_, x_batch, y_batch):
         
     return np.array(scores)
 
+def path_to_airports(path):
+    airport_names = {
+        0: "ATL", 1: "BOS", 2: "DEN", 3: "DFW", 4: "LAX", 5: "ORD", 6: "SFO",
+        7: "SEA", 8: "MIA", 9: "JFK", 10: "PHX", 11: "IAH", 12: "CLT", 13: "MSP",
+        14: "DTW", 15: "LAS", 16: "PDX", 17: "SAN", 18: "SLC", 19: "AUS"
+    }
+    for i in range(len(path)):
+        path[i] = airport_names[path[i]]
+    
+    return path
 
 def run_cuckoo(graph_):
     # Initialize Cuckoo Search
@@ -112,7 +122,7 @@ def run_cuckoo(graph_):
     # Calculate Cost
     actual_cost = calculate_tour_cost(graph_, best_path)
 
-    print(f"Optimal path: {best_path}")
+    print(f"Optimal path: {path_to_airports(best_path)}")
     print(f"Optimal path cost: {actual_cost}")
     print(f"CSA total Exec time => {csa_time.total_seconds()}")
     
@@ -183,7 +193,7 @@ def run_whale(graph_):
         total_cost += 99999
         path.append(0)
         
-    print(f"Optimal path: {path}")
+    print(f"Optimal path: {path_to_airports(path)}")
     print(f"Optimal path cost: {total_cost}")
     print(f"WOA total Exec time => {whale_time.total_seconds()}")
     
