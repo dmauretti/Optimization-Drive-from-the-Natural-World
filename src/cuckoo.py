@@ -19,15 +19,15 @@ class Cuckoo:
         fitness = 0.0
         
         for i in range(1, len(self.path)):
-            total_distance = 0
             curr_node = self.path[i-1]
             next_node = self.path[i]
             if self.G.has_edge(curr_node, next_node):
                 fitness += self.G[curr_node][next_node]['weight']
             else:
-                fitness += 0
-        fitness = np.power(abs(fitness + self.eps), 2)
-        return fitness
+                fitness += 9999  # Penalty for missing edges
+        
+        # Return inverse: lower cost = higher fitness
+        return 1.0 / (fitness + self.eps)
 
     def generate_new_path(self):
         """
@@ -56,10 +56,8 @@ class CuckooSearch:
         self.cuckoos = [Cuckoo(random.sample(self.nodes, len(self.nodes)), self.G) for _ in range(self.num_cuckoos)]
         self.test_results = []
         self.test_cases = 0
+        self.convergence_log = []  # NEW: Track actual best cost per iteration
     
-    """
-    Function to buld new nests at new location and abandon old ones using Levi flights.
-    """
     def levy_flight(self):
         sigma = (math.gamma(1 + self.beta) * np.sin(np.pi * self.beta / 2) / (math.gamma((1 + self.beta) / 2) * self.beta * 2 ** ((self.beta - 1) / 2))) ** (1 / self.beta)
         u = np.random.normal(0, sigma, 1)
@@ -79,12 +77,28 @@ class CuckooSearch:
                     self.test_cases+=1
             
             self.cuckoos = sorted(self.cuckoos, key=lambda x: x.fitness, reverse=True)
-            best_path=self.cuckoos[0].path
-            best_fitness=self.cuckoos[0].fitness
+            best_path = self.cuckoos[0].path
+            best_fitness = self.cuckoos[0].fitness
+            
+            # NEW: Calculate actual tour cost for this iteration
+            actual_cost = 0
+            for k in range(1, len(best_path)):
+                if self.G.has_edge(best_path[k-1], best_path[k]):
+                    actual_cost += self.G[best_path[k-1]][best_path[k]]['weight']
+                else:
+                    actual_cost += 9999
+            
+            self.convergence_log.append({
+                'iteration': i,
+                'best_cost': actual_cost,
+                'best_fitness': best_fitness,
+                'replacements': self.test_cases,
+                'path_length': len(best_path)
+            })
             
             self.test_results.append([i, best_fitness, self.test_cases])
         
-        last_node = list(self.G.nodes)[-1]
-        last_node_index = best_path.index(last_node) + 1
+        best_path = self.cuckoos[0].path
+        best_fitness = self.cuckoos[0].fitness
         
-        return best_path[:last_node_index], best_fitness
+        return best_path, best_fitness
