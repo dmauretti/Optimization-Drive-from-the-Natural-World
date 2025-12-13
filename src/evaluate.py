@@ -198,7 +198,6 @@ def run_whale(graph_):
     print(f"Optimal path cost: {total_cost}")
     print(f"WOA total Exec time => {whale_time.total_seconds()}")
     
-    # Export convergence data
     df_whale = pd.DataFrame(whale.convergence_log)
     df_whale.to_csv('whale_convergence.csv', index=False)
 
