@@ -29,7 +29,7 @@ class WhaleOptimization():
         self._a_step = a_step        # Amount to reduce 'a' by in each step
         self._maximize = maximize
         self._best_solutions = []    # History of the best solution found in each iteration
-        self.convergence_log = []    # Track convergence details
+        self.convergence_log = []    
         
     def get_solutions(self):
         """Returns the current population of solutions (whales)."""
